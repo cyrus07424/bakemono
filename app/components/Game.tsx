@@ -48,6 +48,7 @@ interface Enemy extends Entity {
   damage: number;
   speed: number;
   color: string;
+  level: number;
 }
 
 export default function Game() {
@@ -305,8 +306,8 @@ export default function Game() {
             const index = enemies.indexOf(enemy);
             if (index > -1) {
               // Recover blood gauge when enemy is defeated
-              // Stronger enemies (higher maxHealth) restore more blood
-              const bloodRecovery = Math.floor(enemy.maxHealth * BLOOD_RECOVERY_MULTIPLIER);
+              // Blood recovery scales with enemy level - higher level enemies restore more blood
+              const bloodRecovery = Math.floor(enemy.maxHealth * BLOOD_RECOVERY_MULTIPLIER * enemy.level);
               player.bloodGauge += bloodRecovery;
               enemies.splice(index, 1);
             }
@@ -329,6 +330,10 @@ export default function Game() {
       const difficulty = 1 + score / DIFFICULTY_SCALING_FACTOR;
       const spawnY = player.y - canvas.height / 2 - 100 - Math.random() * 200;
       const spawnX = Math.random() * canvas.width;
+      
+      // Calculate enemy level based on altitude (higher = stronger)
+      // Level increases every 500 units of altitude
+      const enemyLevel = Math.max(1, Math.floor(-spawnY / 500) + 1);
 
       const enemy: Enemy = {
         x: spawnX,
@@ -336,11 +341,12 @@ export default function Game() {
         vx: 0,
         vy: 0,
         radius: 15 + Math.random() * 5 * difficulty,
-        health: 30 * difficulty,
-        maxHealth: 30 * difficulty,
-        damage: 5 * difficulty,
+        health: 30 * difficulty * enemyLevel,
+        maxHealth: 30 * difficulty * enemyLevel,
+        damage: 5 * difficulty * enemyLevel,
         speed: 1 + Math.random() * 2 * difficulty,
         color: `hsl(${Math.random() * HUE_RANGE}, ${SATURATION}%, ${BASE_LIGHTNESS - difficulty * DIFFICULTY_LIGHTNESS_REDUCTION}%)`,
+        level: enemyLevel,
       };
 
       enemiesRef.current.push(enemy);
@@ -465,6 +471,15 @@ export default function Game() {
         enemyHealthWidth * enemyHealthPercent,
         enemyHealthHeight
       );
+      
+      // Draw enemy level above the health bar
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillStyle = '#ffff00';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 3;
+      ctx.textAlign = 'center';
+      ctx.strokeText(`Lv.${enemy.level}`, enemy.x, enemy.y - cameraY - enemy.radius - 18);
+      ctx.fillText(`Lv.${enemy.level}`, enemy.x, enemy.y - cameraY - enemy.radius - 18);
     }
 
     // Draw UI
