@@ -37,6 +37,25 @@ const RANGED_ENEMY_SHOOT_COOLDOWN = 2000; // Cooldown between shots (ms)
 const RANGED_ENEMY_PREFERRED_DISTANCE = 200; // Preferred distance from player
 const PROJECTILE_DAMAGE_MULTIPLIER = 0.5; // Projectile damage relative to enemy damage
 const PROJECTILE_SPEED = 3; // Speed of ranged enemy projectiles
+const EXPLOSIVE_EXPLOSION_RADIUS = 100; // Explosion radius for explosive enemies
+const EXPLOSIVE_TRIGGER_DISTANCE = 80; // Distance at which explosive enemies explode
+const EXPLOSIVE_DAMAGE_MULTIPLIER = 3; // Explosion damage multiplier
+const EXPLOSIVE_WARNING_DISTANCE_MULTIPLIER = 1.5; // Distance multiplier for showing warning
+const EXPLOSIVE_WARNING_PULSE_SPEED = 100; // Animation speed for explosion warning pulse (ms)
+const CHASER_TRAIL_COOLDOWN = 500; // Cooldown between trail projectiles (ms)
+const CHASER_TRAIL_DAMAGE_MULTIPLIER = 0.3; // Trail projectile damage relative to enemy damage
+const CHASER_TRAIL_SPEED_MULTIPLIER = 0.5; // Trail projectile speed relative to normal projectiles
+
+// Enemy type spawn probabilities (level 10-19)
+const LEVEL_10_19_MELEE_PROBABILITY = 0.4;
+const LEVEL_10_19_RANGED_PROBABILITY = 0.7; // Cumulative: 0.4 melee, 0.3 ranged
+// Explosive: remaining probability (0.3)
+
+// Enemy type spawn probabilities (level 20+)
+const LEVEL_20_PLUS_MELEE_PROBABILITY = 0.3;
+const LEVEL_20_PLUS_RANGED_PROBABILITY = 0.55; // Cumulative: 0.3 melee, 0.25 ranged
+const LEVEL_20_PLUS_EXPLOSIVE_PROBABILITY = 0.8; // Cumulative: 0.25 explosive
+// Chaser: remaining probability (0.2)
 
 interface Position {
   x: number;
@@ -72,10 +91,14 @@ interface Enemy extends Entity {
   speed: number;
   color: string;
   level: number;
-  type: 'melee' | 'ranged';
+  type: 'melee' | 'ranged' | 'explosive' | 'chaser';
   lastShootTime?: number; // For ranged enemies
   shootCooldown?: number; // For ranged enemies
   preferredDistance?: number; // For ranged enemies
+  explosionRadius?: number; // For explosive enemies
+  exploded?: boolean; // For explosive enemies
+  trailCooldown?: number; // For chaser enemies
+  lastTrailTime?: number; // For chaser enemies
 }
 
 interface Projectile {
@@ -446,6 +469,70 @@ export default function Game() {
           projectiles.push(projectile);
           enemy.lastShootTime = currentTime;
         }
+      } else if (enemy.type === 'explosive') {
+        // Explosive enemy: charge at player and explode when close
+        if (!enemy.exploded) {
+          if (distance > 0) {
+            enemy.vx = (dx / distance) * enemy.speed;
+            enemy.vy = (dy / distance) * enemy.speed;
+          }
+          
+          enemy.x += enemy.vx;
+          enemy.y += enemy.vy;
+          
+          // Explode when close enough to player
+          if (distance < EXPLOSIVE_TRIGGER_DISTANCE) {
+            enemy.exploded = true;
+            
+            // Deal area damage to player if within explosion radius
+            if (distance < (enemy.explosionRadius || EXPLOSIVE_EXPLOSION_RADIUS)) {
+              const damageMultiplier = Math.max(0, 1 - (distance / (enemy.explosionRadius || EXPLOSIVE_EXPLOSION_RADIUS)));
+              player.bloodGauge -= enemy.damage * EXPLOSIVE_DAMAGE_MULTIPLIER * damageMultiplier;
+              if (player.bloodGauge <= 0) {
+                setGameState('gameover');
+              }
+            }
+            
+            // Remove the enemy after explosion
+            enemies.splice(i, 1);
+            continue;
+          }
+        }
+      } else if (enemy.type === 'chaser') {
+        // Chaser enemy: fast chase with trail of projectiles
+        if (distance > 0) {
+          enemy.vx = (dx / distance) * enemy.speed;
+          enemy.vy = (dy / distance) * enemy.speed;
+        }
+        
+        enemy.x += enemy.vx;
+        enemy.y += enemy.vy;
+        
+        // Leave trail of projectiles
+        const trailCooldown = enemy.trailCooldown || CHASER_TRAIL_COOLDOWN;
+        if (currentTime - (enemy.lastTrailTime || 0) > trailCooldown) {
+          // Create a projectile at current position that moves slowly toward player
+          const projectile: Projectile = {
+            x: enemy.x,
+            y: enemy.y,
+            vx: distance > 0 ? (dx / distance) * PROJECTILE_SPEED * CHASER_TRAIL_SPEED_MULTIPLIER : 0,
+            vy: distance > 0 ? (dy / distance) * PROJECTILE_SPEED * CHASER_TRAIL_SPEED_MULTIPLIER : 0,
+            radius: 4,
+            damage: enemy.damage * CHASER_TRAIL_DAMAGE_MULTIPLIER,
+            color: enemy.color,
+          };
+          projectiles.push(projectile);
+          enemy.lastTrailTime = currentTime;
+        }
+        
+        // Chaser enemies deal damage on collision
+        const collisionDist = player.radius + enemy.radius;
+        if (distance < collisionDist) {
+          player.bloodGauge -= enemy.damage * (deltaTime / 1000);
+          if (player.bloodGauge <= 0) {
+            setGameState('gameover');
+          }
+        }
       }
 
       // Remove enemies that are too far away
@@ -561,8 +648,60 @@ export default function Game() {
       // Level increases every ENEMY_LEVEL_ALTITUDE_INTERVAL units of altitude
       const enemyLevel = Math.max(1, Math.floor(-spawnY / ENEMY_LEVEL_ALTITUDE_INTERVAL) + 1);
       
-      // Randomly choose enemy type (50% melee, 50% ranged)
-      const enemyType = Math.random() < 0.5 ? 'melee' : 'ranged';
+      // Choose enemy type based on level
+      // Level 1-5: Only melee enemies
+      // Level 6-9: Melee and ranged enemies
+      // Level 10-19: Melee, ranged, and explosive enemies
+      // Level 20+: All enemy types including chaser
+      let enemyType: 'melee' | 'ranged' | 'explosive' | 'chaser';
+      
+      if (enemyLevel <= 5) {
+        // Only melee enemies
+        enemyType = 'melee';
+      } else if (enemyLevel <= 9) {
+        // Melee and ranged enemies (50% each)
+        enemyType = Math.random() < 0.5 ? 'melee' : 'ranged';
+      } else if (enemyLevel <= 19) {
+        // Melee, ranged, and explosive enemies
+        const rand = Math.random();
+        if (rand < LEVEL_10_19_MELEE_PROBABILITY) {
+          enemyType = 'melee';
+        } else if (rand < LEVEL_10_19_RANGED_PROBABILITY) {
+          enemyType = 'ranged';
+        } else {
+          enemyType = 'explosive';
+        }
+      } else {
+        // All enemy types
+        const rand = Math.random();
+        if (rand < LEVEL_20_PLUS_MELEE_PROBABILITY) {
+          enemyType = 'melee';
+        } else if (rand < LEVEL_20_PLUS_RANGED_PROBABILITY) {
+          enemyType = 'ranged';
+        } else if (rand < LEVEL_20_PLUS_EXPLOSIVE_PROBABILITY) {
+          enemyType = 'explosive';
+        } else {
+          enemyType = 'chaser';
+        }
+      }
+
+      // Set enemy properties based on type
+      let enemySpeed: number;
+      let enemyColor: string;
+      
+      if (enemyType === 'melee') {
+        enemySpeed = 1 + Math.random() * 2 * difficulty;
+        enemyColor = `hsl(0, ${SATURATION}%, ${BASE_LIGHTNESS - difficulty * DIFFICULTY_LIGHTNESS_REDUCTION}%)`; // Red
+      } else if (enemyType === 'ranged') {
+        enemySpeed = 0.8 + Math.random() * 1.2 * difficulty;
+        enemyColor = `hsl(240, ${SATURATION}%, ${BASE_LIGHTNESS - difficulty * DIFFICULTY_LIGHTNESS_REDUCTION}%)`; // Blue
+      } else if (enemyType === 'explosive') {
+        enemySpeed = 1.5 + Math.random() * 2 * difficulty; // Faster than melee
+        enemyColor = `hsl(30, ${SATURATION}%, ${BASE_LIGHTNESS - difficulty * DIFFICULTY_LIGHTNESS_REDUCTION}%)`; // Orange
+      } else { // chaser
+        enemySpeed = 2 + Math.random() * 2.5 * difficulty; // Fastest
+        enemyColor = `hsl(280, ${SATURATION}%, ${BASE_LIGHTNESS - difficulty * DIFFICULTY_LIGHTNESS_REDUCTION}%)`; // Purple
+      }
 
       const enemy: Enemy = {
         x: spawnX,
@@ -573,15 +712,17 @@ export default function Game() {
         health: 30 * difficulty * enemyLevel,
         maxHealth: 30 * difficulty * enemyLevel,
         damage: 5 * difficulty * enemyLevel,
-        speed: enemyType === 'melee' ? 1 + Math.random() * 2 * difficulty : 0.8 + Math.random() * 1.2 * difficulty,
-        color: enemyType === 'melee' 
-          ? `hsl(0, ${SATURATION}%, ${BASE_LIGHTNESS - difficulty * DIFFICULTY_LIGHTNESS_REDUCTION}%)` // Red for melee
-          : `hsl(240, ${SATURATION}%, ${BASE_LIGHTNESS - difficulty * DIFFICULTY_LIGHTNESS_REDUCTION}%)`, // Blue for ranged
+        speed: enemySpeed,
+        color: enemyColor,
         level: enemyLevel,
         type: enemyType,
         lastShootTime: enemyType === 'ranged' ? Date.now() : undefined,
         shootCooldown: enemyType === 'ranged' ? RANGED_ENEMY_SHOOT_COOLDOWN : undefined,
         preferredDistance: enemyType === 'ranged' ? RANGED_ENEMY_PREFERRED_DISTANCE : undefined,
+        explosionRadius: enemyType === 'explosive' ? EXPLOSIVE_EXPLOSION_RADIUS : undefined,
+        exploded: enemyType === 'explosive' ? false : undefined,
+        trailCooldown: enemyType === 'chaser' ? CHASER_TRAIL_COOLDOWN : undefined,
+        lastTrailTime: enemyType === 'chaser' ? Date.now() : undefined,
       };
 
       enemiesRef.current.push(enemy);
@@ -792,12 +933,45 @@ export default function Game() {
       
       // Draw enemy type indicator
       ctx.font = 'bold 10px sans-serif';
-      ctx.fillStyle = enemy.type === 'melee' ? '#ff6b6b' : '#4dabf7';
+      let typeColor: string;
+      let typeLabel: string;
+      
+      if (enemy.type === 'melee') {
+        typeColor = '#ff6b6b';
+        typeLabel = '近';
+      } else if (enemy.type === 'ranged') {
+        typeColor = '#4dabf7';
+        typeLabel = '遠';
+      } else if (enemy.type === 'explosive') {
+        typeColor = '#ff8c00';
+        typeLabel = '爆';
+      } else { // chaser
+        typeColor = '#da77f2';
+        typeLabel = '追';
+      }
+      
+      ctx.fillStyle = typeColor;
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 2;
-      const typeLabel = enemy.type === 'melee' ? '近' : '遠';
       ctx.strokeText(typeLabel, enemy.x, enemy.y - cameraY + enemy.radius + 15);
       ctx.fillText(typeLabel, enemy.x, enemy.y - cameraY + enemy.radius + 15);
+      
+      // Draw explosion warning for explosive enemies
+      if (enemy.type === 'explosive') {
+        const dx = playerRef.current.x - enemy.x;
+        const dy = playerRef.current.y - enemy.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < EXPLOSIVE_TRIGGER_DISTANCE * EXPLOSIVE_WARNING_DISTANCE_MULTIPLIER) {
+          // Draw warning ring that pulses as enemy gets closer
+          const warningPulse = Math.sin(Date.now() / EXPLOSIVE_WARNING_PULSE_SPEED) * 0.5 + 0.5;
+          ctx.beginPath();
+          ctx.arc(enemy.x, enemy.y - cameraY, enemy.explosionRadius || EXPLOSIVE_EXPLOSION_RADIUS, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(255, 0, 0, ${warningPulse * 0.5})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      }
     }
 
     // Draw projectiles
