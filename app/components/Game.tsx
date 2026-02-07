@@ -41,6 +41,7 @@ const EXPLOSIVE_EXPLOSION_RADIUS = 100; // Explosion radius for explosive enemie
 const EXPLOSIVE_TRIGGER_DISTANCE = 80; // Distance at which explosive enemies explode
 const EXPLOSIVE_DAMAGE_MULTIPLIER = 3; // Explosion damage multiplier
 const EXPLOSIVE_WARNING_DISTANCE_MULTIPLIER = 1.5; // Distance multiplier for showing warning
+const EXPLOSIVE_WARNING_PULSE_SPEED = 100; // Animation speed for explosion warning pulse (ms)
 const CHASER_TRAIL_COOLDOWN = 500; // Cooldown between trail projectiles (ms)
 const CHASER_TRAIL_DAMAGE_MULTIPLIER = 0.3; // Trail projectile damage relative to enemy damage
 const CHASER_TRAIL_SPEED_MULTIPLIER = 0.5; // Trail projectile speed relative to normal projectiles
@@ -485,7 +486,7 @@ export default function Game() {
             
             // Deal area damage to player if within explosion radius
             if (distance < (enemy.explosionRadius || EXPLOSIVE_EXPLOSION_RADIUS)) {
-              const damageMultiplier = 1 - (distance / (enemy.explosionRadius || EXPLOSIVE_EXPLOSION_RADIUS));
+              const damageMultiplier = Math.max(0, 1 - (distance / (enemy.explosionRadius || EXPLOSIVE_EXPLOSION_RADIUS)));
               player.bloodGauge -= enemy.damage * EXPLOSIVE_DAMAGE_MULTIPLIER * damageMultiplier;
               if (player.bloodGauge <= 0) {
                 setGameState('gameover');
@@ -963,7 +964,7 @@ export default function Game() {
         
         if (distance < EXPLOSIVE_TRIGGER_DISTANCE * EXPLOSIVE_WARNING_DISTANCE_MULTIPLIER) {
           // Draw warning ring that pulses as enemy gets closer
-          const warningPulse = Math.sin(Date.now() / 100) * 0.5 + 0.5;
+          const warningPulse = Math.sin(Date.now() / EXPLOSIVE_WARNING_PULSE_SPEED) * 0.5 + 0.5;
           ctx.beginPath();
           ctx.arc(enemy.x, enemy.y - cameraY, enemy.explosionRadius || EXPLOSIVE_EXPLOSION_RADIUS, 0, Math.PI * 2);
           ctx.strokeStyle = `rgba(255, 0, 0, ${warningPulse * 0.5})`;
