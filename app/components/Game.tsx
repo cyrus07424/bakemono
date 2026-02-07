@@ -32,7 +32,7 @@ const PROJECTILE_COUNT_INCREASE_INTERVAL = 3; // Levels between projectile count
 const PROJECTILE_HOMING_LEVEL = 10; // Level at which projectiles start homing
 const PROJECTILE_HOMING_STRENGTH = 0.15; // Homing turning rate (0.0-1.0)
 const PROJECTILE_HOMING_RAMP_TIME = 1000; // Time (ms) for homing to reach full strength
-const PROJECTILE_LIFETIME = 3000; // Time (ms) before projectile starts fading
+const PROJECTILE_LIFETIME = 3000; // Time (ms) projectile exists before fade-out begins
 const PROJECTILE_FADEOUT_TIME = 500; // Time (ms) for fade-out effect
 const PROJECTILE_DEFAULT_TARGET_DISTANCE = 100; // Distance for default target when no enemies present
 
@@ -583,10 +583,13 @@ export default function Game() {
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const projectile = projectiles[i];
       
-      // Check projectile lifetime and remove if expired
+      // Calculate age once for player projectiles (used for both lifetime check and gradual homing)
+      let projectileAge = 0;
       if (projectile.fromPlayer && projectile.createdAt) {
-        const age = currentTime - projectile.createdAt;
-        if (age > PROJECTILE_LIFETIME + PROJECTILE_FADEOUT_TIME) {
+        projectileAge = currentTime - projectile.createdAt;
+        
+        // Check projectile lifetime and remove if expired
+        if (projectileAge > PROJECTILE_LIFETIME + PROJECTILE_FADEOUT_TIME) {
           projectiles.splice(i, 1);
           continue;
         }
@@ -595,8 +598,7 @@ export default function Game() {
       // Apply homing behavior for player projectiles
       if (projectile.fromPlayer && projectile.homing && projectile.createdAt) {
         // Calculate gradual homing strength based on projectile age
-        const age = currentTime - projectile.createdAt;
-        const homingProgress = Math.min(1.0, age / PROJECTILE_HOMING_RAMP_TIME);
+        const homingProgress = Math.min(1.0, projectileAge / PROJECTILE_HOMING_RAMP_TIME);
         const currentHomingStrength = PROJECTILE_HOMING_STRENGTH * homingProgress;
         
         // Find nearest enemy (using squared distance for performance)
