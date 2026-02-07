@@ -196,8 +196,9 @@ export default function Game() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Blood gauge drains over time
-    player.bloodGauge -= 1 * (deltaTime / 1000);
+    // Blood gauge drains over time, drain rate increases with attack level
+    const drainRate = 1 + (player.attackLevel * 0.5); // Base 1 + 0.5 per level
+    player.bloodGauge -= drainRate * (deltaTime / 1000);
     if (player.bloodGauge <= 0) {
       setGameState('gameover');
       return;
@@ -456,6 +457,12 @@ export default function Game() {
     ctx.fillText(`血液: ${Math.max(0, Math.floor(player.bloodGauge))}`, 20, 100);
     ctx.fillText(`敵: ${enemiesRef.current.length}`, 20, 130);
     ctx.fillText(`攻撃力: Lv.${player.attackLevel} (${player.attackDamage})`, 20, 160);
+    
+    // Show blood drain rate
+    const drainRate = 1 + (player.attackLevel * 0.5);
+    ctx.font = '18px sans-serif';
+    ctx.fillStyle = 'rgba(255, 100, 100, 0.8)';
+    ctx.fillText(`血液減少: -${drainRate.toFixed(1)}/秒`, 20, 190);
 
     // Controls hint
     ctx.font = '16px sans-serif';
