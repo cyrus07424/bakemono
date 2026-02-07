@@ -30,10 +30,10 @@ const PROJECTILE_COOLDOWN_MIN = 100; // Minimum cooldown between shots (ms)
 const PROJECTILE_COUNT_BASE = 1; // Base number of projectiles per shot
 const PROJECTILE_COUNT_INCREASE_INTERVAL = 3; // Levels between projectile count increases
 const PROJECTILE_HOMING_LEVEL = 10; // Level at which projectiles start homing
-const PROJECTILE_HOMING_STRENGTH_BASE = 0.02; // Base homing turning rate at level 10 (minimal)
-const PROJECTILE_HOMING_STRENGTH_PER_LEVEL = 0.000015; // Homing turning rate increase per level
-const PROJECTILE_HOMING_RAMP_TIME = 1000; // Time (ms) for homing to reach full strength
-const PROJECTILE_LIFETIME = 3000; // Time (ms) projectile exists before fade-out begins
+const PROJECTILE_HOMING_STRENGTH_BASE = 0; // Base homing turning rate at level 10 (minimal)
+const PROJECTILE_HOMING_STRENGTH_PER_LEVEL = 0.0000000015; // Homing turning rate increase per level
+const PROJECTILE_HOMING_RAMP_TIME = 10000; // Time (ms) for homing to reach full strength
+const PROJECTILE_LIFETIME = 5000; // Time (ms) projectile exists before fade-out begins
 const PROJECTILE_FADEOUT_TIME = 500; // Time (ms) for fade-out effect
 const PROJECTILE_DEFAULT_TARGET_DISTANCE = 100; // Distance for default target when no enemies present
 
