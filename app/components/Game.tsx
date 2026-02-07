@@ -2,6 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+// Game balance constants
+const WAVE_SCALING_FACTOR = 100; // Enemies per wave increase every N score
+const DIFFICULTY_SCALING_FACTOR = 500; // Difficulty increases every N score
+const HUE_RANGE = 360;
+const SATURATION = 70;
+const BASE_LIGHTNESS = 50;
+const DIFFICULTY_LIGHTNESS_REDUCTION = 5;
+
 interface Position {
   x: number;
   y: number;
@@ -274,11 +282,11 @@ export default function Game() {
     if (!canvas) return;
 
     const player = playerRef.current;
-    const waveCount = 3 + Math.floor(score / 100);
+    const waveCount = 3 + Math.floor(score / WAVE_SCALING_FACTOR);
     
     // Spawn enemies above the player
     for (let i = 0; i < waveCount; i++) {
-      const difficulty = 1 + score / 500; // Difficulty increases with score
+      const difficulty = 1 + score / DIFFICULTY_SCALING_FACTOR;
       const spawnY = player.y - canvas.height / 2 - 100 - Math.random() * 200;
       const spawnX = Math.random() * canvas.width;
 
@@ -292,7 +300,7 @@ export default function Game() {
         maxHealth: 30 * difficulty,
         damage: 5 * difficulty,
         speed: 1 + Math.random() * 2 * difficulty,
-        color: `hsl(${Math.random() * 360}, 70%, ${50 - difficulty * 5}%)`,
+        color: `hsl(${Math.random() * HUE_RANGE}, ${SATURATION}%, ${BASE_LIGHTNESS - difficulty * DIFFICULTY_LIGHTNESS_REDUCTION}%)`,
       };
 
       enemiesRef.current.push(enemy);
