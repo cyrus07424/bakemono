@@ -344,9 +344,7 @@ export default function Game() {
         });
         
         // Only shoot if there's an enemy within melee range
-        if (!hasEnemyInRange) {
-          return;
-        }
+        if (hasEnemyInRange) {
         
         // Calculate number of projectiles to shoot based on level
         const projectileCount = PROJECTILE_COUNT_BASE + Math.floor((player.projectileLevel - 1) / PROJECTILE_COUNT_INCREASE_INTERVAL);
@@ -411,6 +409,7 @@ export default function Game() {
         }
         
         player.lastProjectileTime = currentTime;
+        }
       }
     }
 
