@@ -546,10 +546,10 @@ export default function Game() {
     // Calculate altitude-based enemy count
     // Start with fewer enemies at low altitude, increase as player goes higher
     const altitude = Math.max(0, -player.y);
-    const baseEnemyCount = 1; // Start with just 1 enemy
+    const minEnemyCount = 1; // Start with just 1 enemy
     const altitudeMultiplier = Math.floor(altitude / 300); // Increase count every 300 units
     const scoreMultiplier = Math.floor(score / WAVE_SCALING_FACTOR);
-    const waveCount = baseEnemyCount + altitudeMultiplier + scoreMultiplier;
+    const waveCount = minEnemyCount + altitudeMultiplier + scoreMultiplier;
     
     // Spawn enemies above the player
     for (let i = 0; i < waveCount; i++) {
