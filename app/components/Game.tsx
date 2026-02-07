@@ -133,11 +133,12 @@ export default function Game() {
       player.x += dx;
       player.y += dy;
       
-      // Keep player in bounds
+      // Keep player in bounds (horizontal only, allow infinite upward movement)
       const canvas = canvasRef.current;
       if (canvas) {
         player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
-        player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+        // Only restrict downward movement, allow infinite upward (negative Y) movement
+        player.y = Math.min(canvas.height - player.radius, player.y);
       }
       
       // Update touch start position for continuous tracking
@@ -235,9 +236,10 @@ export default function Game() {
     player.x += player.vx;
     player.y += player.vy;
 
-    // Keep player in bounds
+    // Keep player in bounds (horizontal only, allow infinite upward movement)
     player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
-    player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+    // Only restrict downward movement, allow infinite upward (negative Y) movement
+    player.y = Math.min(canvas.height - player.radius, player.y);
 
     // Update camera (follow player vertically, showing upward progression)
     cameraYRef.current = player.y - canvas.height / 2;
