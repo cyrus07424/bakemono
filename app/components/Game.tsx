@@ -12,7 +12,7 @@ const DIFFICULTY_LIGHTNESS_REDUCTION = 5;
 
 // Blood gauge constants
 const BASE_DRAIN_RATE = 1; // Blood gauge drain per second at level 0
-const DRAIN_RATE_PER_LEVEL = 0.5; // Additional drain per attack level
+const DRAIN_RATE_PER_LEVEL = 0.5; // Additional drain per enhancement level
 const BLOOD_RECOVERY_MULTIPLIER = 0.5; // Blood recovered from defeated enemies (% of maxHealth)
 const BLOOD_GAUGE_DISPLAY_REFERENCE = 100; // Reference value for blood gauge visual display
 
@@ -30,7 +30,8 @@ const PROJECTILE_COOLDOWN_MIN = 100; // Minimum cooldown between shots (ms)
 const PROJECTILE_COUNT_BASE = 1; // Base number of projectiles per shot
 const PROJECTILE_COUNT_INCREASE_INTERVAL = 3; // Levels between projectile count increases
 const PROJECTILE_HOMING_LEVEL = 10; // Level at which projectiles start homing
-const PROJECTILE_HOMING_STRENGTH = 0.15; // Homing turning rate (0.0-1.0)
+const PROJECTILE_HOMING_STRENGTH_BASE = 0.02; // Base homing turning rate at level 10 (minimal)
+const PROJECTILE_HOMING_STRENGTH_PER_LEVEL = 0.015; // Homing turning rate increase per level
 const PROJECTILE_HOMING_RAMP_TIME = 1000; // Time (ms) for homing to reach full strength
 const PROJECTILE_LIFETIME = 3000; // Time (ms) projectile exists before fade-out begins
 const PROJECTILE_FADEOUT_TIME = 500; // Time (ms) for fade-out effect
@@ -303,8 +304,9 @@ export default function Game() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Blood gauge drains over time, drain rate increases with attack level
-    const drainRate = BASE_DRAIN_RATE + (player.attackLevel * DRAIN_RATE_PER_LEVEL);
+    // Blood gauge drains over time, drain rate increases with all enhancement levels
+    const totalLevels = player.attackLevel + player.rangeLevel + player.speedLevel + player.projectileLevel;
+    const drainRate = BASE_DRAIN_RATE + (totalLevels * DRAIN_RATE_PER_LEVEL);
     player.bloodGauge -= drainRate * (deltaTime / 1000);
     if (player.bloodGauge <= 0) {
       setGameState('gameover');
@@ -597,9 +599,13 @@ export default function Game() {
       
       // Apply homing behavior for player projectiles
       if (projectile.fromPlayer && projectile.homing && projectile.createdAt) {
+        // Calculate homing strength based on projectile level (increases with level)
+        const homingStrengthForLevel = PROJECTILE_HOMING_STRENGTH_BASE + 
+          (player.projectileLevel - PROJECTILE_HOMING_LEVEL) * PROJECTILE_HOMING_STRENGTH_PER_LEVEL;
+        
         // Calculate gradual homing strength based on projectile age
         const homingProgress = Math.min(1.0, projectileAge / PROJECTILE_HOMING_RAMP_TIME);
-        const currentHomingStrength = PROJECTILE_HOMING_STRENGTH * homingProgress;
+        const currentHomingStrength = homingStrengthForLevel * homingProgress;
         
         // Find nearest enemy (using squared distance for performance)
         let nearestEnemy: Enemy | null = null;
