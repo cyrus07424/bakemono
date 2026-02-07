@@ -45,6 +45,17 @@ const CHASER_TRAIL_COOLDOWN = 500; // Cooldown between trail projectiles (ms)
 const CHASER_TRAIL_DAMAGE_MULTIPLIER = 0.3; // Trail projectile damage relative to enemy damage
 const CHASER_TRAIL_SPEED_MULTIPLIER = 0.5; // Trail projectile speed relative to normal projectiles
 
+// Enemy type spawn probabilities (level 10-19)
+const LEVEL_10_19_MELEE_PROBABILITY = 0.4;
+const LEVEL_10_19_RANGED_PROBABILITY = 0.7; // Cumulative: 0.4 melee, 0.3 ranged
+// Explosive: remaining probability (0.3)
+
+// Enemy type spawn probabilities (level 20+)
+const LEVEL_20_PLUS_MELEE_PROBABILITY = 0.3;
+const LEVEL_20_PLUS_RANGED_PROBABILITY = 0.55; // Cumulative: 0.3 melee, 0.25 ranged
+const LEVEL_20_PLUS_EXPLOSIVE_PROBABILITY = 0.8; // Cumulative: 0.25 explosive
+// Chaser: remaining probability (0.2)
+
 interface Position {
   x: number;
   y: number;
@@ -652,9 +663,9 @@ export default function Game() {
       } else if (enemyLevel <= 19) {
         // Melee, ranged, and explosive enemies
         const rand = Math.random();
-        if (rand < 0.4) {
+        if (rand < LEVEL_10_19_MELEE_PROBABILITY) {
           enemyType = 'melee';
-        } else if (rand < 0.7) {
+        } else if (rand < LEVEL_10_19_RANGED_PROBABILITY) {
           enemyType = 'ranged';
         } else {
           enemyType = 'explosive';
@@ -662,11 +673,11 @@ export default function Game() {
       } else {
         // All enemy types
         const rand = Math.random();
-        if (rand < 0.3) {
+        if (rand < LEVEL_20_PLUS_MELEE_PROBABILITY) {
           enemyType = 'melee';
-        } else if (rand < 0.55) {
+        } else if (rand < LEVEL_20_PLUS_RANGED_PROBABILITY) {
           enemyType = 'ranged';
-        } else if (rand < 0.8) {
+        } else if (rand < LEVEL_20_PLUS_EXPLOSIVE_PROBABILITY) {
           enemyType = 'explosive';
         } else {
           enemyType = 'chaser';
