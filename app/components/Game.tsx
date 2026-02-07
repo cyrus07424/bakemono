@@ -24,7 +24,14 @@ const MOVEMENT_SPEED_INCREASE_PER_LEVEL = 0.5; // Movement speed increase per le
 const PROJECTILE_DAMAGE_BASE = 15; // Base damage for player projectiles
 const PROJECTILE_DAMAGE_INCREASE_PER_LEVEL = 5; // Projectile damage increase per level
 const PROJECTILE_SPEED_PLAYER = 8; // Speed of player projectiles
-const PROJECTILE_COOLDOWN = 300; // Cooldown between player projectile shots (ms)
+const PROJECTILE_COOLDOWN_BASE = 300; // Base cooldown between player projectile shots (ms)
+const PROJECTILE_COOLDOWN_REDUCTION_PER_LEVEL = 15; // Cooldown reduction per level (ms)
+const PROJECTILE_COOLDOWN_MIN = 100; // Minimum cooldown between shots (ms)
+const PROJECTILE_COUNT_BASE = 1; // Base number of projectiles per shot
+const PROJECTILE_COUNT_INCREASE_INTERVAL = 3; // Levels between projectile count increases
+const PROJECTILE_HOMING_LEVEL = 10; // Level at which projectiles start homing
+const PROJECTILE_HOMING_STRENGTH = 0.15; // Homing turning rate (0.0-1.0)
+const PROJECTILE_DEFAULT_TARGET_DISTANCE = 100; // Distance for default target when no enemies present
 
 // Darkness constants
 const DARKNESS_RISE_SPEED = 0.5; // Speed at which darkness rises (units per frame)
@@ -110,6 +117,7 @@ interface Projectile {
   damage: number;
   color: string;
   fromPlayer?: boolean; // Flag to distinguish player projectiles from enemy projectiles
+  homing?: boolean; // Whether projectile homes in on enemies
 }
 
 export default function Game() {
@@ -312,36 +320,59 @@ export default function Game() {
     // Handle automatic player projectile shooting
     if (player.projectileLevel > 0) {
       const currentTime = Date.now();
-      if (currentTime - player.lastProjectileTime > PROJECTILE_COOLDOWN) {
-        // Find nearest enemy to shoot at
-        const enemies = enemiesRef.current;
-        let nearestEnemy: Enemy | null = null;
-        let nearestDistance = Infinity;
+      // Calculate cooldown based on level (decreases with level)
+      const projectileCooldown = Math.max(
+        PROJECTILE_COOLDOWN_MIN,
+        PROJECTILE_COOLDOWN_BASE - (player.projectileLevel - 1) * PROJECTILE_COOLDOWN_REDUCTION_PER_LEVEL
+      );
+      
+      if (currentTime - player.lastProjectileTime > projectileCooldown) {
+        // Calculate number of projectiles to shoot based on level
+        const projectileCount = PROJECTILE_COUNT_BASE + Math.floor((player.projectileLevel - 1) / PROJECTILE_COUNT_INCREASE_INTERVAL);
         
-        for (const enemy of enemies) {
-          const dx = enemy.x - player.x;
-          const dy = enemy.y - player.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance < nearestDistance) {
-            nearestDistance = distance;
-            nearestEnemy = enemy;
+        // Find nearest enemies to shoot at
+        const enemies = enemiesRef.current;
+        const targets: Array<{ x: number; y: number }> = [];
+        
+        // Sort enemies by distance (using squared distance for performance)
+        const sortedEnemies = [...enemies].sort((a, b) => {
+          const distSqA = (a.x - player.x) ** 2 + (a.y - player.y) ** 2;
+          const distSqB = (b.x - player.x) ** 2 + (b.y - player.y) ** 2;
+          return distSqA - distSqB;
+        });
+        
+        // Select up to projectileCount targets
+        for (let i = 0; i < Math.min(projectileCount, sortedEnemies.length); i++) {
+          targets.push(sortedEnemies[i]);
+        }
+        
+        // If no targets, shoot in multiple directions
+        // projectileCount is guaranteed > 0 by the outer condition (player.projectileLevel > 0)
+        if (targets.length === 0 && projectileCount > 0) {
+          const angleStep = (2 * Math.PI) / projectileCount; // Divide full circle evenly
+          for (let i = 0; i < projectileCount; i++) {
+            const angle = angleStep * i; // 0 radians = right (positive x-axis), increases counter-clockwise
+            targets.push({
+              x: player.x + Math.cos(angle) * PROJECTILE_DEFAULT_TARGET_DISTANCE,
+              y: player.y + Math.sin(angle) * PROJECTILE_DEFAULT_TARGET_DISTANCE,
+            });
           }
         }
         
-        // Shoot projectile towards nearest enemy (or upward if no enemy)
-        if (nearestEnemy || enemies.length === 0) {
-          const projectileDamage = PROJECTILE_DAMAGE_BASE + (player.projectileLevel - 1) * PROJECTILE_DAMAGE_INCREASE_PER_LEVEL;
+        // Shoot projectiles at targets
+        const projectileDamage = PROJECTILE_DAMAGE_BASE + (player.projectileLevel - 1) * PROJECTILE_DAMAGE_INCREASE_PER_LEVEL;
+        const hasHoming = player.projectileLevel >= PROJECTILE_HOMING_LEVEL;
+        
+        for (const target of targets) {
           let vx = 0;
           let vy = -PROJECTILE_SPEED_PLAYER; // Default shoot upward
           
-          if (nearestEnemy) {
-            const dx = nearestEnemy.x - player.x;
-            const dy = nearestEnemy.y - player.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance > 0) {
-              vx = (dx / distance) * PROJECTILE_SPEED_PLAYER;
-              vy = (dy / distance) * PROJECTILE_SPEED_PLAYER;
-            }
+          const dx = target.x - player.x;
+          const dy = target.y - player.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance > 0) {
+            vx = (dx / distance) * PROJECTILE_SPEED_PLAYER;
+            vy = (dy / distance) * PROJECTILE_SPEED_PLAYER;
           }
           
           const projectile: Projectile = {
@@ -351,12 +382,14 @@ export default function Game() {
             vy: vy,
             radius: 6,
             damage: projectileDamage,
-            color: '#ffff00',
+            color: hasHoming ? '#ff00ff' : '#ffff00', // Purple for homing, yellow for normal
             fromPlayer: true,
+            homing: hasHoming,
           };
           projectilesRef.current.push(projectile);
-          player.lastProjectileTime = currentTime;
         }
+        
+        player.lastProjectileTime = currentTime;
       }
     }
 
@@ -544,6 +577,47 @@ export default function Game() {
     // Update projectiles
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const projectile = projectiles[i];
+      
+      // Apply homing behavior for player projectiles
+      if (projectile.fromPlayer && projectile.homing) {
+        // Find nearest enemy (using squared distance for performance)
+        let nearestEnemy: Enemy | null = null;
+        let nearestDistSq = Infinity;
+        
+        for (const enemy of enemies) {
+          const dx = enemy.x - projectile.x;
+          const dy = enemy.y - projectile.y;
+          const distSq = dx * dx + dy * dy;
+          if (distSq < nearestDistSq) {
+            nearestDistSq = distSq;
+            nearestEnemy = enemy;
+          }
+        }
+        
+        // Adjust velocity towards nearest enemy
+        if (nearestEnemy) {
+          const dx = nearestEnemy.x - projectile.x;
+          const dy = nearestEnemy.y - projectile.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          
+          if (distance > 0) {
+            // Calculate desired velocity towards enemy
+            const desiredVx = (dx / distance) * PROJECTILE_SPEED_PLAYER;
+            const desiredVy = (dy / distance) * PROJECTILE_SPEED_PLAYER;
+            
+            // Smoothly interpolate current velocity towards desired velocity
+            projectile.vx += (desiredVx - projectile.vx) * PROJECTILE_HOMING_STRENGTH;
+            projectile.vy += (desiredVy - projectile.vy) * PROJECTILE_HOMING_STRENGTH;
+            
+            // Maintain constant speed
+            const speed = Math.sqrt(projectile.vx * projectile.vx + projectile.vy * projectile.vy);
+            if (speed > 0) {
+              projectile.vx = (projectile.vx / speed) * PROJECTILE_SPEED_PLAYER;
+              projectile.vy = (projectile.vy / speed) * PROJECTILE_SPEED_PLAYER;
+            }
+          }
+        }
+      }
       
       projectile.x += projectile.vx;
       projectile.y += projectile.vy;
@@ -999,7 +1073,22 @@ export default function Game() {
     ctx.fillText(`近接攻撃: Lv.${player.attackLevel} (${player.attackDamage})`, 20, 160);
     ctx.fillText(`攻撃範囲: Lv.${player.rangeLevel} (${Math.floor(player.attackRadius)})`, 20, 185);
     ctx.fillText(`移動速度: Lv.${player.speedLevel} (${(player.baseSpeed + player.speedLevel * MOVEMENT_SPEED_INCREASE_PER_LEVEL).toFixed(1)})`, 20, 210);
-    ctx.fillText(`飛び道具: Lv.${player.projectileLevel}${player.projectileLevel > 0 ? ` (${PROJECTILE_DAMAGE_BASE + (player.projectileLevel - 1) * PROJECTILE_DAMAGE_INCREASE_PER_LEVEL})` : ''}`, 20, 235);
+    
+    // Enhanced projectile display
+    if (player.projectileLevel > 0) {
+      const damage = PROJECTILE_DAMAGE_BASE + (player.projectileLevel - 1) * PROJECTILE_DAMAGE_INCREASE_PER_LEVEL;
+      const count = PROJECTILE_COUNT_BASE + Math.floor((player.projectileLevel - 1) / PROJECTILE_COUNT_INCREASE_INTERVAL);
+      const cooldown = Math.max(
+        PROJECTILE_COOLDOWN_MIN,
+        PROJECTILE_COOLDOWN_BASE - (player.projectileLevel - 1) * PROJECTILE_COOLDOWN_REDUCTION_PER_LEVEL
+      );
+      const hasHoming = player.projectileLevel >= PROJECTILE_HOMING_LEVEL;
+      const homingText = hasHoming ? ', 追尾' : '';
+      const statsText = `飛び道具: Lv.${player.projectileLevel} (威力:${damage}, 弾数:${count}, 間隔:${cooldown}ms${homingText})`;
+      ctx.fillText(statsText, 20, 235);
+    } else {
+      ctx.fillText(`飛び道具: Lv.${player.projectileLevel}`, 20, 235);
+    }
     
     // Show blood drain rate
     const drainRate = BASE_DRAIN_RATE + (player.attackLevel * DRAIN_RATE_PER_LEVEL);
