@@ -19,6 +19,12 @@ const BLOOD_GAUGE_DISPLAY_REFERENCE = 100; // Reference value for blood gauge vi
 // Attack strengthening constants
 const ATTACK_UPGRADE_BASE_COST = 50; // Base cost for first attack upgrade
 const DAMAGE_INCREASE_PER_LEVEL = 5; // Attack damage increase per level
+const ATTACK_RANGE_INCREASE_PER_LEVEL = 20; // Attack range increase per level
+const MOVEMENT_SPEED_INCREASE_PER_LEVEL = 0.5; // Movement speed increase per level
+const PROJECTILE_DAMAGE_BASE = 15; // Base damage for player projectiles
+const PROJECTILE_DAMAGE_INCREASE_PER_LEVEL = 5; // Projectile damage increase per level
+const PROJECTILE_SPEED_PLAYER = 8; // Speed of player projectiles
+const PROJECTILE_COOLDOWN = 300; // Cooldown between player projectile shots (ms)
 
 // Darkness constants
 const DARKNESS_RISE_SPEED = 0.5; // Speed at which darkness rises (units per frame)
@@ -52,6 +58,11 @@ interface Player extends Entity {
   attackCooldown: number;
   lastAttackTime: number;
   attackLevel: number;
+  rangeLevel: number;
+  speedLevel: number;
+  projectileLevel: number;
+  lastProjectileTime: number;
+  baseSpeed: number;
 }
 
 interface Enemy extends Entity {
@@ -75,6 +86,7 @@ interface Projectile {
   radius: number;
   damage: number;
   color: string;
+  fromPlayer?: boolean; // Flag to distinguish player projectiles from enemy projectiles
 }
 
 export default function Game() {
@@ -82,6 +94,9 @@ export default function Game() {
   const [gameState, setGameState] = useState<'start' | 'playing' | 'gameover'>('start');
   const [score, setScore] = useState(0);
   const [attackLevel, setAttackLevel] = useState(0);
+  const [rangeLevel, setRangeLevel] = useState(0);
+  const [speedLevel, setSpeedLevel] = useState(0);
+  const [projectileLevel, setProjectileLevel] = useState(0);
   const [bloodGauge, setBloodGauge] = useState(100);
   
   // Game state refs (mutable for animation loop)
@@ -97,6 +112,11 @@ export default function Game() {
     attackCooldown: 500,
     lastAttackTime: 0,
     attackLevel: 0,
+    rangeLevel: 0,
+    speedLevel: 0,
+    projectileLevel: 0,
+    lastProjectileTime: 0,
+    baseSpeed: 5,
   });
   
   const enemiesRef = useRef<Enemy[]>([]);
@@ -130,6 +150,7 @@ export default function Game() {
         keysRef.current.add(e.key);
       }
       if (e.key === ' ' && gameState === 'start') {
+        e.preventDefault();
         setGameState('playing');
       }
     };
@@ -256,7 +277,7 @@ export default function Game() {
     }
 
     // Handle keyboard input
-    const moveSpeed = 5;
+    const moveSpeed = player.baseSpeed + (player.speedLevel * MOVEMENT_SPEED_INCREASE_PER_LEVEL);
     if (keysRef.current.has('ArrowLeft')) player.vx = -moveSpeed;
     else if (keysRef.current.has('ArrowRight')) player.vx = moveSpeed;
     else if (!touchStartRef.current) player.vx = 0;
@@ -264,6 +285,57 @@ export default function Game() {
     if (keysRef.current.has('ArrowUp')) player.vy = -moveSpeed;
     else if (keysRef.current.has('ArrowDown')) player.vy = moveSpeed;
     else if (!touchStartRef.current) player.vy = 0;
+
+    // Handle automatic player projectile shooting
+    if (player.projectileLevel > 0) {
+      const currentTime = Date.now();
+      if (currentTime - player.lastProjectileTime > PROJECTILE_COOLDOWN) {
+        // Find nearest enemy to shoot at
+        const enemies = enemiesRef.current;
+        let nearestEnemy: Enemy | null = null;
+        let nearestDistance = Infinity;
+        
+        for (const enemy of enemies) {
+          const dx = enemy.x - player.x;
+          const dy = enemy.y - player.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestEnemy = enemy;
+          }
+        }
+        
+        // Shoot projectile towards nearest enemy (or upward if no enemy)
+        if (nearestEnemy || enemies.length === 0) {
+          const projectileDamage = PROJECTILE_DAMAGE_BASE + (player.projectileLevel - 1) * PROJECTILE_DAMAGE_INCREASE_PER_LEVEL;
+          let vx = 0;
+          let vy = -PROJECTILE_SPEED_PLAYER; // Default shoot upward
+          
+          if (nearestEnemy) {
+            const dx = nearestEnemy.x - player.x;
+            const dy = nearestEnemy.y - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance > 0) {
+              vx = (dx / distance) * PROJECTILE_SPEED_PLAYER;
+              vy = (dy / distance) * PROJECTILE_SPEED_PLAYER;
+            }
+          }
+          
+          const projectile: Projectile = {
+            x: player.x,
+            y: player.y,
+            vx: vx,
+            vy: vy,
+            radius: 6,
+            damage: projectileDamage,
+            color: '#ffff00',
+            fromPlayer: true,
+          };
+          projectilesRef.current.push(projectile);
+          player.lastProjectileTime = currentTime;
+        }
+      }
+    }
 
     // Update player position
     player.x += player.vx;
@@ -293,6 +365,9 @@ export default function Game() {
     // Update UI states
     setBloodGauge(player.bloodGauge);
     setAttackLevel(player.attackLevel);
+    setRangeLevel(player.rangeLevel);
+    setSpeedLevel(player.speedLevel);
+    setProjectileLevel(player.projectileLevel);
 
     // Spawn enemies in waves
     const currentTime = Date.now();
@@ -386,18 +461,47 @@ export default function Game() {
       projectile.x += projectile.vx;
       projectile.y += projectile.vy;
       
-      // Check collision with player
-      const dx = player.x - projectile.x;
-      const dy = player.y - projectile.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      
-      if (distance < player.radius + projectile.radius) {
-        player.bloodGauge -= projectile.damage;
-        if (player.bloodGauge <= 0) {
-          setGameState('gameover');
+      if (projectile.fromPlayer) {
+        // Player projectile - check collision with enemies
+        let hitEnemy = false;
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const enemy = enemies[j];
+          const dx = enemy.x - projectile.x;
+          const dy = enemy.y - projectile.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          
+          if (distance < enemy.radius + projectile.radius) {
+            enemy.health -= projectile.damage;
+            if (enemy.health <= 0) {
+              // Recover blood gauge when enemy is defeated
+              const baseRecovery = 30 * BLOOD_RECOVERY_MULTIPLIER;
+              const bloodRecovery = Math.floor(baseRecovery * enemy.level);
+              player.bloodGauge += bloodRecovery;
+              enemies.splice(j, 1);
+            }
+            hitEnemy = true;
+            break;
+          }
         }
-        projectiles.splice(i, 1);
-        continue;
+        
+        if (hitEnemy) {
+          projectiles.splice(i, 1);
+          continue;
+        }
+      } else {
+        // Enemy projectile - check collision with player
+        const dx = player.x - projectile.x;
+        const dy = player.y - projectile.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < player.radius + projectile.radius) {
+          player.bloodGauge -= projectile.damage;
+          if (player.bloodGauge <= 0) {
+            setGameState('gameover');
+          }
+          projectiles.splice(i, 1);
+          continue;
+        }
       }
       
       // Remove projectiles that are too far away
@@ -438,7 +542,14 @@ export default function Game() {
     if (!canvas) return;
 
     const player = playerRef.current;
-    const waveCount = 3 + Math.floor(score / WAVE_SCALING_FACTOR);
+    
+    // Calculate altitude-based enemy count
+    // Start with fewer enemies at low altitude, increase as player goes higher
+    const altitude = Math.max(0, -player.y);
+    const baseEnemyCount = 1; // Start with just 1 enemy
+    const altitudeMultiplier = Math.floor(altitude / 300); // Increase count every 300 units
+    const scoreMultiplier = Math.floor(score / WAVE_SCALING_FACTOR);
+    const waveCount = baseEnemyCount + altitudeMultiplier + scoreMultiplier;
     
     // Spawn enemies above the player
     for (let i = 0; i < waveCount; i++) {
@@ -488,6 +599,43 @@ export default function Game() {
       player.attackDamage += DAMAGE_INCREASE_PER_LEVEL;
       setBloodGauge(player.bloodGauge);
       setAttackLevel(player.attackLevel);
+    }
+  };
+
+  const strengthenRange = () => {
+    const player = playerRef.current;
+    const cost = ATTACK_UPGRADE_BASE_COST * (player.rangeLevel + 1);
+    
+    if (player.bloodGauge >= cost) {
+      player.bloodGauge -= cost;
+      player.rangeLevel += 1;
+      player.attackRadius += ATTACK_RANGE_INCREASE_PER_LEVEL;
+      setBloodGauge(player.bloodGauge);
+      setRangeLevel(player.rangeLevel);
+    }
+  };
+
+  const strengthenSpeed = () => {
+    const player = playerRef.current;
+    const cost = ATTACK_UPGRADE_BASE_COST * (player.speedLevel + 1);
+    
+    if (player.bloodGauge >= cost) {
+      player.bloodGauge -= cost;
+      player.speedLevel += 1;
+      setBloodGauge(player.bloodGauge);
+      setSpeedLevel(player.speedLevel);
+    }
+  };
+
+  const strengthenProjectile = () => {
+    const player = playerRef.current;
+    const cost = ATTACK_UPGRADE_BASE_COST * (player.projectileLevel + 1);
+    
+    if (player.bloodGauge >= cost) {
+      player.bloodGauge -= cost;
+      player.projectileLevel += 1;
+      setBloodGauge(player.bloodGauge);
+      setProjectileLevel(player.projectileLevel);
     }
   };
 
@@ -671,13 +819,19 @@ export default function Game() {
     ctx.fillText(`高度: ${Math.floor(-cameraY)}m`, 20, 70);
     ctx.fillText(`血液: ${Math.max(0, Math.floor(player.bloodGauge))}`, 20, 100);
     ctx.fillText(`敵: ${enemiesRef.current.length}`, 20, 130);
-    ctx.fillText(`攻撃力: Lv.${player.attackLevel} (${player.attackDamage})`, 20, 160);
+    
+    // Show all enhancement levels
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText(`近接攻撃: Lv.${player.attackLevel} (${player.attackDamage})`, 20, 160);
+    ctx.fillText(`攻撃範囲: Lv.${player.rangeLevel} (${Math.floor(player.attackRadius)})`, 20, 185);
+    ctx.fillText(`移動速度: Lv.${player.speedLevel} (${(player.baseSpeed + player.speedLevel * MOVEMENT_SPEED_INCREASE_PER_LEVEL).toFixed(1)})`, 20, 210);
+    ctx.fillText(`飛び道具: Lv.${player.projectileLevel}${player.projectileLevel > 0 ? ` (${PROJECTILE_DAMAGE_BASE + (player.projectileLevel - 1) * PROJECTILE_DAMAGE_INCREASE_PER_LEVEL})` : ''}`, 20, 235);
     
     // Show blood drain rate
     const drainRate = BASE_DRAIN_RATE + (player.attackLevel * DRAIN_RATE_PER_LEVEL);
     ctx.font = '18px sans-serif';
     ctx.fillStyle = 'rgba(255, 100, 100, 0.8)';
-    ctx.fillText(`血液減少: -${drainRate.toFixed(1)}/秒`, 20, 190);
+    ctx.fillText(`血液減少: -${drainRate.toFixed(1)}/秒`, 20, 265);
 
     // Controls hint
     ctx.font = '16px sans-serif';
@@ -695,13 +849,34 @@ export default function Game() {
       />
       
       {gameState === 'playing' && (
-        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex gap-2">
           <button
             onClick={strengthenAttack}
             disabled={bloodGauge < ATTACK_UPGRADE_BASE_COST * (attackLevel + 1)}
-            className="px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold text-lg rounded-lg transition-colors shadow-lg"
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold text-sm rounded-lg transition-colors shadow-lg"
           >
-            攻撃力強化 (コスト: {ATTACK_UPGRADE_BASE_COST * (attackLevel + 1)})
+            近接攻撃力強化<br />Lv.{attackLevel} → {attackLevel + 1}<br />({ATTACK_UPGRADE_BASE_COST * (attackLevel + 1)})
+          </button>
+          <button
+            onClick={strengthenRange}
+            disabled={bloodGauge < ATTACK_UPGRADE_BASE_COST * (rangeLevel + 1)}
+            className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold text-sm rounded-lg transition-colors shadow-lg"
+          >
+            攻撃範囲強化<br />Lv.{rangeLevel} → {rangeLevel + 1}<br />({ATTACK_UPGRADE_BASE_COST * (rangeLevel + 1)})
+          </button>
+          <button
+            onClick={strengthenSpeed}
+            disabled={bloodGauge < ATTACK_UPGRADE_BASE_COST * (speedLevel + 1)}
+            className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold text-sm rounded-lg transition-colors shadow-lg"
+          >
+            移動速度強化<br />Lv.{speedLevel} → {speedLevel + 1}<br />({ATTACK_UPGRADE_BASE_COST * (speedLevel + 1)})
+          </button>
+          <button
+            onClick={strengthenProjectile}
+            disabled={bloodGauge < ATTACK_UPGRADE_BASE_COST * (projectileLevel + 1)}
+            className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold text-sm rounded-lg transition-colors shadow-lg"
+          >
+            飛び道具強化<br />Lv.{projectileLevel} → {projectileLevel + 1}<br />({ATTACK_UPGRADE_BASE_COST * (projectileLevel + 1)})
           </button>
         </div>
       )}
@@ -717,6 +892,7 @@ export default function Game() {
               <p>PC: 矢印キー (↑↓←→)</p>
               <p>スマホ: 画面をドラッグ</p>
               <p>⚔️ 自動攻撃: 周囲の敵を攻撃</p>
+              <p>🎯 飛び道具: 強化後に自動で発射</p>
             </div>
             <button
               onClick={() => setGameState('playing')}
@@ -740,11 +916,20 @@ export default function Game() {
                 setScore(0);
                 playerRef.current.bloodGauge = 100;
                 playerRef.current.attackLevel = 0;
+                playerRef.current.rangeLevel = 0;
+                playerRef.current.speedLevel = 0;
+                playerRef.current.projectileLevel = 0;
                 playerRef.current.attackDamage = 10;
+                playerRef.current.attackRadius = 150;
+                playerRef.current.baseSpeed = 5;
                 setBloodGauge(100);
                 setAttackLevel(0);
+                setRangeLevel(0);
+                setSpeedLevel(0);
+                setProjectileLevel(0);
                 cameraYRef.current = 0;
                 enemiesRef.current = [];
+                projectilesRef.current = [];
               }}
               className="px-8 py-4 bg-green-600 hover:bg-green-700 text-white font-bold text-xl rounded-lg transition-colors"
             >
