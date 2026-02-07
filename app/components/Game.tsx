@@ -10,6 +10,16 @@ const SATURATION = 70;
 const BASE_LIGHTNESS = 50;
 const DIFFICULTY_LIGHTNESS_REDUCTION = 5;
 
+// Blood gauge constants
+const BASE_DRAIN_RATE = 1; // Blood gauge drain per second at level 0
+const DRAIN_RATE_PER_LEVEL = 0.5; // Additional drain per attack level
+const BLOOD_RECOVERY_MULTIPLIER = 0.5; // Blood recovered from defeated enemies (% of maxHealth)
+const BLOOD_GAUGE_DISPLAY_REFERENCE = 100; // Reference value for blood gauge visual display
+
+// Attack strengthening constants
+const ATTACK_UPGRADE_BASE_COST = 50; // Base cost for first attack upgrade
+const DAMAGE_INCREASE_PER_LEVEL = 5; // Attack damage increase per level
+
 interface Position {
   x: number;
   y: number;
@@ -123,6 +133,13 @@ export default function Game() {
       player.x += dx;
       player.y += dy;
       
+      // Keep player in bounds
+      const canvas = canvasRef.current;
+      if (canvas) {
+        player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
+        player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+      }
+      
       // Update touch start position for continuous tracking
       touchStartRef.current = { x: touch.clientX, y: touch.clientY };
     };
@@ -197,7 +214,7 @@ export default function Game() {
     if (!canvas) return;
 
     // Blood gauge drains over time, drain rate increases with attack level
-    const drainRate = 1 + (player.attackLevel * 0.5); // Base 1 + 0.5 per level
+    const drainRate = BASE_DRAIN_RATE + (player.attackLevel * DRAIN_RATE_PER_LEVEL);
     player.bloodGauge -= drainRate * (deltaTime / 1000);
     if (player.bloodGauge <= 0) {
       setGameState('gameover');
@@ -287,7 +304,7 @@ export default function Game() {
             if (index > -1) {
               // Recover blood gauge when enemy is defeated
               // Stronger enemies (higher maxHealth) restore more blood
-              const bloodRecovery = Math.floor(enemy.maxHealth * 0.5);
+              const bloodRecovery = Math.floor(enemy.maxHealth * BLOOD_RECOVERY_MULTIPLIER);
               player.bloodGauge += bloodRecovery;
               enemies.splice(index, 1);
             }
@@ -331,12 +348,12 @@ export default function Game() {
   const strengthenAttack = () => {
     const player = playerRef.current;
     // Cost increases with each level: 50, 100, 150, 200, etc.
-    const cost = 50 * (player.attackLevel + 1);
+    const cost = ATTACK_UPGRADE_BASE_COST * (player.attackLevel + 1);
     
     if (player.bloodGauge >= cost) {
       player.bloodGauge -= cost;
       player.attackLevel += 1;
-      player.attackDamage += 5; // Increase damage by 5 per level
+      player.attackDamage += DAMAGE_INCREASE_PER_LEVEL;
       setBloodGauge(player.bloodGauge);
       setAttackLevel(player.attackLevel);
     }
@@ -397,7 +414,7 @@ export default function Game() {
     // Draw player health bar (blood gauge)
     const healthBarWidth = 60;
     const healthBarHeight = 8;
-    const healthPercent = Math.min(1, player.bloodGauge / 100); // Display relative to 100 for visual reference
+    const healthPercent = Math.min(1, player.bloodGauge / BLOOD_GAUGE_DISPLAY_REFERENCE);
     
     ctx.fillStyle = '#333';
     ctx.fillRect(
@@ -459,7 +476,7 @@ export default function Game() {
     ctx.fillText(`攻撃力: Lv.${player.attackLevel} (${player.attackDamage})`, 20, 160);
     
     // Show blood drain rate
-    const drainRate = 1 + (player.attackLevel * 0.5);
+    const drainRate = BASE_DRAIN_RATE + (player.attackLevel * DRAIN_RATE_PER_LEVEL);
     ctx.font = '18px sans-serif';
     ctx.fillStyle = 'rgba(255, 100, 100, 0.8)';
     ctx.fillText(`血液減少: -${drainRate.toFixed(1)}/秒`, 20, 190);
@@ -483,10 +500,10 @@ export default function Game() {
         <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
           <button
             onClick={strengthenAttack}
-            disabled={bloodGauge < 50 * (attackLevel + 1)}
+            disabled={bloodGauge < ATTACK_UPGRADE_BASE_COST * (attackLevel + 1)}
             className="px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold text-lg rounded-lg transition-colors shadow-lg"
           >
-            攻撃力強化 (コスト: {50 * (attackLevel + 1)})
+            攻撃力強化 (コスト: {ATTACK_UPGRADE_BASE_COST * (attackLevel + 1)})
           </button>
         </div>
       )}
