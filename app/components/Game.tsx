@@ -307,7 +307,9 @@ export default function Game() {
             if (index > -1) {
               // Recover blood gauge when enemy is defeated
               // Blood recovery scales with enemy level - higher level enemies restore more blood
-              const bloodRecovery = Math.floor(enemy.maxHealth * BLOOD_RECOVERY_MULTIPLIER * enemy.level);
+              // Using base health (30) scaled by level to avoid quadratic scaling
+              const baseRecovery = 30 * BLOOD_RECOVERY_MULTIPLIER;
+              const bloodRecovery = Math.floor(baseRecovery * enemy.level);
               player.bloodGauge += bloodRecovery;
               enemies.splice(index, 1);
             }
