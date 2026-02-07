@@ -10,6 +10,16 @@ const SATURATION = 70;
 const BASE_LIGHTNESS = 50;
 const DIFFICULTY_LIGHTNESS_REDUCTION = 5;
 
+// Blood gauge constants
+const BASE_DRAIN_RATE = 1; // Blood gauge drain per second at level 0
+const DRAIN_RATE_PER_LEVEL = 0.5; // Additional drain per attack level
+const BLOOD_RECOVERY_MULTIPLIER = 0.5; // Blood recovered from defeated enemies (% of maxHealth)
+const BLOOD_GAUGE_DISPLAY_REFERENCE = 100; // Reference value for blood gauge visual display
+
+// Attack strengthening constants
+const ATTACK_UPGRADE_BASE_COST = 50; // Base cost for first attack upgrade
+const DAMAGE_INCREASE_PER_LEVEL = 5; // Attack damage increase per level
+
 interface Position {
   x: number;
   y: number;
@@ -24,12 +34,12 @@ interface Entity {
 }
 
 interface Player extends Entity {
-  health: number;
-  maxHealth: number;
+  bloodGauge: number;
   attackRadius: number;
   attackDamage: number;
   attackCooldown: number;
   lastAttackTime: number;
+  attackLevel: number;
 }
 
 interface Enemy extends Entity {
@@ -44,6 +54,8 @@ export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [gameState, setGameState] = useState<'start' | 'playing' | 'gameover'>('start');
   const [score, setScore] = useState(0);
+  const [attackLevel, setAttackLevel] = useState(0);
+  const [bloodGauge, setBloodGauge] = useState(100);
   
   // Game state refs (mutable for animation loop)
   const playerRef = useRef<Player>({
@@ -52,12 +64,12 @@ export default function Game() {
     vx: 0,
     vy: 0,
     radius: 20,
-    health: 100,
-    maxHealth: 100,
+    bloodGauge: 100,
     attackRadius: 150,
     attackDamage: 10,
     attackCooldown: 500,
     lastAttackTime: 0,
+    attackLevel: 0,
   });
   
   const enemiesRef = useRef<Enemy[]>([]);
@@ -116,10 +128,20 @@ export default function Game() {
       const dx = touch.clientX - touchStartRef.current.x;
       const dy = touch.clientY - touchStartRef.current.y;
 
+      // Move player directly to follow finger drag
       const player = playerRef.current;
-      const moveSpeed = 0.3;
-      player.vx = dx * moveSpeed;
-      player.vy = dy * moveSpeed;
+      player.x += dx;
+      player.y += dy;
+      
+      // Keep player in bounds
+      const canvas = canvasRef.current;
+      if (canvas) {
+        player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
+        player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+      }
+      
+      // Update touch start position for continuous tracking
+      touchStartRef.current = { x: touch.clientX, y: touch.clientY };
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
@@ -191,6 +213,14 @@ export default function Game() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // Blood gauge drains over time, drain rate increases with attack level
+    const drainRate = BASE_DRAIN_RATE + (player.attackLevel * DRAIN_RATE_PER_LEVEL);
+    player.bloodGauge -= drainRate * (deltaTime / 1000);
+    if (player.bloodGauge <= 0) {
+      setGameState('gameover');
+      return;
+    }
+
     // Handle keyboard input
     const moveSpeed = 5;
     if (keysRef.current.has('ArrowLeft')) player.vx = -moveSpeed;
@@ -215,6 +245,10 @@ export default function Game() {
     // Update score based on upward progress
     const newScore = Math.max(0, Math.floor(-cameraYRef.current / 10));
     setScore(newScore);
+    
+    // Update UI states
+    setBloodGauge(player.bloodGauge);
+    setAttackLevel(player.attackLevel);
 
     // Spawn enemies in waves
     const currentTime = Date.now();
@@ -244,8 +278,8 @@ export default function Game() {
       // Check collision with player
       const collisionDist = player.radius + enemy.radius;
       if (distance < collisionDist) {
-        player.health -= enemy.damage * (deltaTime / 1000);
-        if (player.health <= 0) {
+        player.bloodGauge -= enemy.damage * (deltaTime / 1000);
+        if (player.bloodGauge <= 0) {
           setGameState('gameover');
         }
       }
@@ -268,6 +302,10 @@ export default function Game() {
           if (enemy.health <= 0) {
             const index = enemies.indexOf(enemy);
             if (index > -1) {
+              // Recover blood gauge when enemy is defeated
+              // Stronger enemies (higher maxHealth) restore more blood
+              const bloodRecovery = Math.floor(enemy.maxHealth * BLOOD_RECOVERY_MULTIPLIER);
+              player.bloodGauge += bloodRecovery;
               enemies.splice(index, 1);
             }
           }
@@ -304,6 +342,20 @@ export default function Game() {
       };
 
       enemiesRef.current.push(enemy);
+    }
+  };
+
+  const strengthenAttack = () => {
+    const player = playerRef.current;
+    // Cost increases with each level: 50, 100, 150, 200, etc.
+    const cost = ATTACK_UPGRADE_BASE_COST * (player.attackLevel + 1);
+    
+    if (player.bloodGauge >= cost) {
+      player.bloodGauge -= cost;
+      player.attackLevel += 1;
+      player.attackDamage += DAMAGE_INCREASE_PER_LEVEL;
+      setBloodGauge(player.bloodGauge);
+      setAttackLevel(player.attackLevel);
     }
   };
 
@@ -359,10 +411,10 @@ export default function Game() {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // Draw player health bar
+    // Draw player health bar (blood gauge)
     const healthBarWidth = 60;
     const healthBarHeight = 8;
-    const healthPercent = player.health / player.maxHealth;
+    const healthPercent = Math.min(1, player.bloodGauge / BLOOD_GAUGE_DISPLAY_REFERENCE);
     
     ctx.fillStyle = '#333';
     ctx.fillRect(
@@ -372,7 +424,8 @@ export default function Game() {
       healthBarHeight
     );
     
-    ctx.fillStyle = healthPercent > 0.5 ? '#4ecdc4' : healthPercent > 0.25 ? '#f39c12' : '#e74c3c';
+    // Blood gauge uses red color
+    ctx.fillStyle = '#e74c3c';
     ctx.fillRect(
       player.x - healthBarWidth / 2,
       player.y - cameraY - player.radius - 20,
@@ -418,8 +471,15 @@ export default function Game() {
     ctx.textAlign = 'left';
     ctx.fillText(`スコア: ${score}`, 20, 40);
     ctx.fillText(`高度: ${Math.floor(-cameraY)}m`, 20, 70);
-    ctx.fillText(`体力: ${Math.max(0, Math.floor(player.health))}/${player.maxHealth}`, 20, 100);
+    ctx.fillText(`血液: ${Math.max(0, Math.floor(player.bloodGauge))}`, 20, 100);
     ctx.fillText(`敵: ${enemiesRef.current.length}`, 20, 130);
+    ctx.fillText(`攻撃力: Lv.${player.attackLevel} (${player.attackDamage})`, 20, 160);
+    
+    // Show blood drain rate
+    const drainRate = BASE_DRAIN_RATE + (player.attackLevel * DRAIN_RATE_PER_LEVEL);
+    ctx.font = '18px sans-serif';
+    ctx.fillStyle = 'rgba(255, 100, 100, 0.8)';
+    ctx.fillText(`血液減少: -${drainRate.toFixed(1)}/秒`, 20, 190);
 
     // Controls hint
     ctx.font = '16px sans-serif';
@@ -435,6 +495,18 @@ export default function Game() {
         className="absolute top-0 left-0 w-full h-full"
         style={{ touchAction: 'none' }}
       />
+      
+      {gameState === 'playing' && (
+        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+          <button
+            onClick={strengthenAttack}
+            disabled={bloodGauge < ATTACK_UPGRADE_BASE_COST * (attackLevel + 1)}
+            className="px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold text-lg rounded-lg transition-colors shadow-lg"
+          >
+            攻撃力強化 (コスト: {ATTACK_UPGRADE_BASE_COST * (attackLevel + 1)})
+          </button>
+        </div>
+      )}
       
       {gameState === 'start' && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
@@ -468,7 +540,11 @@ export default function Game() {
               onClick={() => {
                 setGameState('start');
                 setScore(0);
-                playerRef.current.health = playerRef.current.maxHealth;
+                playerRef.current.bloodGauge = 100;
+                playerRef.current.attackLevel = 0;
+                playerRef.current.attackDamage = 10;
+                setBloodGauge(100);
+                setAttackLevel(0);
                 cameraYRef.current = 0;
                 enemiesRef.current = [];
               }}
