@@ -31,6 +31,9 @@ const PROJECTILE_COUNT_BASE = 1; // Base number of projectiles per shot
 const PROJECTILE_COUNT_INCREASE_INTERVAL = 3; // Levels between projectile count increases
 const PROJECTILE_HOMING_LEVEL = 10; // Level at which projectiles start homing
 const PROJECTILE_HOMING_STRENGTH = 0.15; // Homing turning rate (0.0-1.0)
+const PROJECTILE_HOMING_RAMP_TIME = 1000; // Time (ms) for homing to reach full strength
+const PROJECTILE_LIFETIME = 3000; // Time (ms) before projectile starts fading
+const PROJECTILE_FADEOUT_TIME = 500; // Time (ms) for fade-out effect
 const PROJECTILE_DEFAULT_TARGET_DISTANCE = 100; // Distance for default target when no enemies present
 
 // Darkness constants
@@ -118,6 +121,7 @@ interface Projectile {
   color: string;
   fromPlayer?: boolean; // Flag to distinguish player projectiles from enemy projectiles
   homing?: boolean; // Whether projectile homes in on enemies
+  createdAt?: number; // Timestamp when projectile was created (for fade-out and gradual homing)
 }
 
 export default function Game() {
@@ -385,6 +389,7 @@ export default function Game() {
             color: hasHoming ? '#ff00ff' : '#ffff00', // Purple for homing, yellow for normal
             fromPlayer: true,
             homing: hasHoming,
+            createdAt: currentTime,
           };
           projectilesRef.current.push(projectile);
         }
@@ -578,8 +583,22 @@ export default function Game() {
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const projectile = projectiles[i];
       
+      // Check projectile lifetime and remove if expired
+      if (projectile.fromPlayer && projectile.createdAt) {
+        const age = currentTime - projectile.createdAt;
+        if (age > PROJECTILE_LIFETIME + PROJECTILE_FADEOUT_TIME) {
+          projectiles.splice(i, 1);
+          continue;
+        }
+      }
+      
       // Apply homing behavior for player projectiles
-      if (projectile.fromPlayer && projectile.homing) {
+      if (projectile.fromPlayer && projectile.homing && projectile.createdAt) {
+        // Calculate gradual homing strength based on projectile age
+        const age = currentTime - projectile.createdAt;
+        const homingProgress = Math.min(1.0, age / PROJECTILE_HOMING_RAMP_TIME);
+        const currentHomingStrength = PROJECTILE_HOMING_STRENGTH * homingProgress;
+        
         // Find nearest enemy (using squared distance for performance)
         let nearestEnemy: Enemy | null = null;
         let nearestDistSq = Infinity;
@@ -605,9 +624,9 @@ export default function Game() {
             const desiredVx = (dx / distance) * PROJECTILE_SPEED_PLAYER;
             const desiredVy = (dy / distance) * PROJECTILE_SPEED_PLAYER;
             
-            // Smoothly interpolate current velocity towards desired velocity
-            projectile.vx += (desiredVx - projectile.vx) * PROJECTILE_HOMING_STRENGTH;
-            projectile.vy += (desiredVy - projectile.vy) * PROJECTILE_HOMING_STRENGTH;
+            // Smoothly interpolate current velocity towards desired velocity with gradual strength
+            projectile.vx += (desiredVx - projectile.vx) * currentHomingStrength;
+            projectile.vy += (desiredVy - projectile.vy) * currentHomingStrength;
             
             // Maintain constant speed
             const speed = Math.sqrt(projectile.vx * projectile.vx + projectile.vy * projectile.vy);
@@ -1049,12 +1068,41 @@ export default function Game() {
     }
 
     // Draw projectiles
+    const currentTime = Date.now();
     for (const projectile of projectilesRef.current) {
+      // Calculate alpha for fade-out effect
+      let alpha = 1.0;
+      if (projectile.fromPlayer && projectile.createdAt) {
+        const age = currentTime - projectile.createdAt;
+        if (age > PROJECTILE_LIFETIME) {
+          // Start fading out after lifetime expires
+          const fadeProgress = (age - PROJECTILE_LIFETIME) / PROJECTILE_FADEOUT_TIME;
+          alpha = Math.max(0, 1.0 - fadeProgress);
+        }
+      }
+      
       ctx.beginPath();
       ctx.arc(projectile.x, projectile.y - cameraY, projectile.radius, 0, Math.PI * 2);
-      ctx.fillStyle = projectile.color;
+      
+      // Apply alpha to fill color
+      if (alpha < 1.0) {
+        // Parse the color and add alpha
+        const color = projectile.color;
+        if (color.startsWith('#')) {
+          // Convert hex to rgba
+          const r = parseInt(color.slice(1, 3), 16);
+          const g = parseInt(color.slice(3, 5), 16);
+          const b = parseInt(color.slice(5, 7), 16);
+          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        } else {
+          ctx.fillStyle = projectile.color;
+        }
+      } else {
+        ctx.fillStyle = projectile.color;
+      }
+      
       ctx.fill();
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = alpha < 1.0 ? `rgba(255, 255, 255, ${alpha})` : '#fff';
       ctx.lineWidth = 1;
       ctx.stroke();
     }
