@@ -31,6 +31,7 @@ const PROJECTILE_COUNT_BASE = 1; // Base number of projectiles per shot
 const PROJECTILE_COUNT_INCREASE_INTERVAL = 3; // Levels between projectile count increases
 const PROJECTILE_HOMING_LEVEL = 10; // Level at which projectiles start homing
 const PROJECTILE_HOMING_STRENGTH = 0.15; // Homing turning rate (0.0-1.0)
+const PROJECTILE_DEFAULT_TARGET_DISTANCE = 100; // Distance for default target when no enemies present
 
 // Darkness constants
 const DARKNESS_RISE_SPEED = 0.5; // Speed at which darkness rises (units per frame)
@@ -331,13 +332,13 @@ export default function Game() {
         
         // Find nearest enemies to shoot at
         const enemies = enemiesRef.current;
-        const targets: Enemy[] = [];
+        const targets: Array<{ x: number; y: number }> = [];
         
-        // Sort enemies by distance
+        // Sort enemies by distance (using squared distance for performance)
         const sortedEnemies = [...enemies].sort((a, b) => {
-          const distA = Math.sqrt((a.x - player.x) ** 2 + (a.y - player.y) ** 2);
-          const distB = Math.sqrt((b.x - player.x) ** 2 + (b.y - player.y) ** 2);
-          return distA - distB;
+          const distSqA = (a.x - player.x) ** 2 + (a.y - player.y) ** 2;
+          const distSqB = (b.x - player.x) ** 2 + (b.y - player.y) ** 2;
+          return distSqA - distSqB;
         });
         
         // Select up to projectileCount targets
@@ -346,14 +347,15 @@ export default function Game() {
         }
         
         // If no targets, shoot in multiple directions
+        // projectileCount is guaranteed > 0 by the outer condition (player.projectileLevel > 0)
         if (targets.length === 0 && projectileCount > 0) {
-          const angleStep = (Math.PI * 2) / Math.max(projectileCount, 8);
+          const angleStep = (2 * Math.PI) / projectileCount; // Divide full circle evenly
           for (let i = 0; i < projectileCount; i++) {
-            const angle = angleStep * i - Math.PI / 2; // Start from up
+            const angle = angleStep * i; // 0 radians = right (positive x-axis), increases counter-clockwise
             targets.push({
-              x: player.x + Math.cos(angle) * 100,
-              y: player.y + Math.sin(angle) * 100,
-            } as Enemy);
+              x: player.x + Math.cos(angle) * PROJECTILE_DEFAULT_TARGET_DISTANCE,
+              y: player.y + Math.sin(angle) * PROJECTILE_DEFAULT_TARGET_DISTANCE,
+            });
           }
         }
         
@@ -578,16 +580,16 @@ export default function Game() {
       
       // Apply homing behavior for player projectiles
       if (projectile.fromPlayer && projectile.homing) {
-        // Find nearest enemy
+        // Find nearest enemy (using squared distance for performance)
         let nearestEnemy: Enemy | null = null;
-        let nearestDistance = Infinity;
+        let nearestDistSq = Infinity;
         
         for (const enemy of enemies) {
           const dx = enemy.x - projectile.x;
           const dy = enemy.y - projectile.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance < nearestDistance) {
-            nearestDistance = distance;
+          const distSq = dx * dx + dy * dy;
+          if (distSq < nearestDistSq) {
+            nearestDistSq = distSq;
             nearestEnemy = enemy;
           }
         }
@@ -1081,11 +1083,9 @@ export default function Game() {
         PROJECTILE_COOLDOWN_BASE - (player.projectileLevel - 1) * PROJECTILE_COOLDOWN_REDUCTION_PER_LEVEL
       );
       const hasHoming = player.projectileLevel >= PROJECTILE_HOMING_LEVEL;
-      ctx.fillText(
-        `飛び道具: Lv.${player.projectileLevel} (威力:${damage}, 弾数:${count}, 間隔:${cooldown}ms${hasHoming ? ', 追尾' : ''})`,
-        20,
-        235
-      );
+      const homingText = hasHoming ? ', 追尾' : '';
+      const statsText = `飛び道具: Lv.${player.projectileLevel} (威力:${damage}, 弾数:${count}, 間隔:${cooldown}ms${homingText})`;
+      ctx.fillText(statsText, 20, 235);
     } else {
       ctx.fillText(`飛び道具: Lv.${player.projectileLevel}`, 20, 235);
     }
