@@ -333,11 +333,24 @@ export default function Game() {
       );
       
       if (currentTime - player.lastProjectileTime > projectileCooldown) {
+        // Check if there is at least one enemy within melee attack range
+        const enemies = enemiesRef.current;
+        const hasEnemyInRange = enemies.some(enemy => {
+          const dx = player.x - enemy.x;
+          const dy = player.y - enemy.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          return distance < player.attackRadius;
+        });
+        
+        // Only shoot if there's an enemy within melee range
+        if (!hasEnemyInRange) {
+          return;
+        }
+        
         // Calculate number of projectiles to shoot based on level
         const projectileCount = PROJECTILE_COUNT_BASE + Math.floor((player.projectileLevel - 1) / PROJECTILE_COUNT_INCREASE_INTERVAL);
         
         // Find nearest enemies to shoot at
-        const enemies = enemiesRef.current;
         const targets: Array<{ x: number; y: number }> = [];
         
         // Sort enemies by distance (using squared distance for performance)
