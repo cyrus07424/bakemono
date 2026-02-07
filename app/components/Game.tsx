@@ -20,6 +20,10 @@ const BLOOD_GAUGE_DISPLAY_REFERENCE = 100; // Reference value for blood gauge vi
 const ATTACK_UPGRADE_BASE_COST = 50; // Base cost for first attack upgrade
 const DAMAGE_INCREASE_PER_LEVEL = 5; // Attack damage increase per level
 
+// Darkness constants
+const DARKNESS_RISE_SPEED = 0.5; // Speed at which darkness rises (units per frame)
+const DARKNESS_START_OFFSET = 200; // Initial distance below player
+
 interface Position {
   x: number;
   y: number;
@@ -79,6 +83,7 @@ export default function Game() {
   const cameraYRef = useRef(0);
   const lastSpawnTimeRef = useRef(0);
   const gameLoopRef = useRef<number | undefined>(undefined);
+  const darknessYRef = useRef(0); // Y position of the rising darkness
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -187,6 +192,9 @@ export default function Game() {
     enemiesRef.current = [];
     cameraYRef.current = 0;
     lastSpawnTimeRef.current = Date.now();
+    
+    // Initialize darkness position below the player
+    darknessYRef.current = playerRef.current.y + DARKNESS_START_OFFSET;
 
     // Game loop
     let lastTime = Date.now();
@@ -244,6 +252,15 @@ export default function Game() {
 
     // Update camera (follow player vertically, showing upward progression)
     cameraYRef.current = player.y - canvas.height / 2;
+    
+    // Update darkness position - it rises continuously
+    darknessYRef.current -= DARKNESS_RISE_SPEED;
+    
+    // Check if player is caught by darkness
+    if (player.y >= darknessYRef.current) {
+      setGameState('gameover');
+      return;
+    }
     
     // Update score based on upward progress
     const newScore = Math.max(0, Math.floor(-cameraYRef.current / 10));
@@ -394,6 +411,43 @@ export default function Game() {
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+
+    // Draw rising darkness from below
+    const darknessY = darknessYRef.current;
+    const darknessScreenY = darknessY - cameraY;
+    
+    // Only draw darkness if it's visible on screen
+    if (darknessScreenY > -100) {
+      // Draw gradient darkness
+      const gradient = ctx.createLinearGradient(0, darknessScreenY - 100, 0, darknessScreenY);
+      gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      gradient.addColorStop(0.5, 'rgba(20, 0, 30, 0.8)');
+      gradient.addColorStop(1, 'rgba(10, 0, 20, 1)');
+      
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, darknessScreenY - 100, canvas.width, 100);
+      
+      // Draw solid darkness below
+      ctx.fillStyle = 'rgba(10, 0, 20, 1)';
+      ctx.fillRect(0, darknessScreenY, canvas.width, canvas.height - darknessScreenY);
+      
+      // Draw danger line at the edge
+      ctx.strokeStyle = '#ff0000';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, darknessScreenY);
+      ctx.lineTo(canvas.width, darknessScreenY);
+      ctx.stroke();
+      
+      // Add pulsing effect to the danger line
+      const pulse = Math.sin(Date.now() / 200) * 0.5 + 0.5;
+      ctx.strokeStyle = `rgba(255, 0, 0, ${pulse})`;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(0, darknessScreenY);
+      ctx.lineTo(canvas.width, darknessScreenY);
       ctx.stroke();
     }
 
