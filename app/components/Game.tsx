@@ -1147,7 +1147,8 @@ export default function Game() {
     }
     
     // Show blood drain rate
-    const drainRate = BASE_DRAIN_RATE + (player.attackLevel * DRAIN_RATE_PER_LEVEL);
+    const totalLevels = player.attackLevel + player.rangeLevel + player.speedLevel + player.projectileLevel;
+    const drainRate = BASE_DRAIN_RATE + (totalLevels * DRAIN_RATE_PER_LEVEL);
     ctx.font = '18px sans-serif';
     ctx.fillStyle = 'rgba(255, 100, 100, 0.8)';
     ctx.fillText(`血液減少: -${drainRate.toFixed(1)}/秒`, 20, 265);
