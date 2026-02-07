@@ -24,6 +24,14 @@ const DAMAGE_INCREASE_PER_LEVEL = 5; // Attack damage increase per level
 const DARKNESS_RISE_SPEED = 0.5; // Speed at which darkness rises (units per frame)
 const DARKNESS_START_OFFSET = 200; // Initial distance below player
 
+// Enemy type constants
+const ENEMY_LEVEL_ALTITUDE_INTERVAL = 500; // Altitude interval for level increase
+const RANGED_DISTANCE_THRESHOLD = 50; // Distance threshold for ranged enemy positioning
+const RANGED_ENEMY_SHOOT_COOLDOWN = 2000; // Cooldown between shots (ms)
+const RANGED_ENEMY_PREFERRED_DISTANCE = 200; // Preferred distance from player
+const PROJECTILE_DAMAGE_MULTIPLIER = 0.5; // Projectile damage relative to enemy damage
+const PROJECTILE_SPEED = 3; // Speed of ranged enemy projectiles
+
 interface Position {
   x: number;
   y: number;
@@ -53,6 +61,20 @@ interface Enemy extends Entity {
   speed: number;
   color: string;
   level: number;
+  type: 'melee' | 'ranged';
+  lastShootTime?: number; // For ranged enemies
+  shootCooldown?: number; // For ranged enemies
+  preferredDistance?: number; // For ranged enemies
+}
+
+interface Projectile {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+  damage: number;
+  color: string;
 }
 
 export default function Game() {
@@ -78,6 +100,7 @@ export default function Game() {
   });
   
   const enemiesRef = useRef<Enemy[]>([]);
+  const projectilesRef = useRef<Projectile[]>([]);
   const keysRef = useRef<Set<string>>(new Set());
   const touchStartRef = useRef<Position | null>(null);
   const cameraYRef = useRef(0);
@@ -190,6 +213,7 @@ export default function Game() {
     playerRef.current.x = canvas.width / 2;
     playerRef.current.y = canvas.height / 2;
     enemiesRef.current = [];
+    projectilesRef.current = [];
     cameraYRef.current = 0;
     lastSpawnTimeRef.current = Date.now();
     
@@ -279,34 +303,106 @@ export default function Game() {
 
     // Update enemies
     const enemies = enemiesRef.current;
+    const projectiles = projectilesRef.current;
     for (let i = enemies.length - 1; i >= 0; i--) {
       const enemy = enemies[i];
 
-      // Move enemy towards player
+      // Calculate distance to player
       const dx = player.x - enemy.x;
       const dy = player.y - enemy.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
-      if (distance > 0) {
-        enemy.vx = (dx / distance) * enemy.speed;
-        enemy.vy = (dy / distance) * enemy.speed;
-      }
-
-      enemy.x += enemy.vx;
-      enemy.y += enemy.vy;
-
-      // Check collision with player
-      const collisionDist = player.radius + enemy.radius;
-      if (distance < collisionDist) {
-        player.bloodGauge -= enemy.damage * (deltaTime / 1000);
-        if (player.bloodGauge <= 0) {
-          setGameState('gameover');
+      if (enemy.type === 'melee') {
+        // Melee enemy: charge directly at player
+        if (distance > 0) {
+          enemy.vx = (dx / distance) * enemy.speed;
+          enemy.vy = (dy / distance) * enemy.speed;
+        }
+        
+        enemy.x += enemy.vx;
+        enemy.y += enemy.vy;
+        
+        // Melee enemies deal damage on collision
+        const collisionDist = player.radius + enemy.radius;
+        if (distance < collisionDist) {
+          player.bloodGauge -= enemy.damage * (deltaTime / 1000);
+          if (player.bloodGauge <= 0) {
+            setGameState('gameover');
+          }
+        }
+      } else if (enemy.type === 'ranged') {
+        // Ranged enemy: maintain distance and shoot projectiles
+        const preferredDist = RANGED_ENEMY_PREFERRED_DISTANCE;
+        
+        if (distance > preferredDist + RANGED_DISTANCE_THRESHOLD) {
+          // Too far, move closer
+          if (distance > 0) {
+            enemy.vx = (dx / distance) * enemy.speed;
+            enemy.vy = (dy / distance) * enemy.speed;
+          }
+        } else if (distance < preferredDist - RANGED_DISTANCE_THRESHOLD) {
+          // Too close, move away
+          if (distance > 0) {
+            enemy.vx = -(dx / distance) * enemy.speed;
+            enemy.vy = -(dy / distance) * enemy.speed;
+          }
+        } else {
+          // At good distance, slow down
+          enemy.vx *= 0.9;
+          enemy.vy *= 0.9;
+        }
+        
+        enemy.x += enemy.vx;
+        enemy.y += enemy.vy;
+        
+        // Shoot projectiles at player
+        const shootCooldown = RANGED_ENEMY_SHOOT_COOLDOWN;
+        if (currentTime - (enemy.lastShootTime || 0) > shootCooldown) {
+          // Fire projectile
+          const projectile: Projectile = {
+            x: enemy.x,
+            y: enemy.y,
+            vx: distance > 0 ? (dx / distance) * PROJECTILE_SPEED : 0,
+            vy: distance > 0 ? (dy / distance) * PROJECTILE_SPEED : 0,
+            radius: 5,
+            damage: enemy.damage * PROJECTILE_DAMAGE_MULTIPLIER,
+            color: enemy.color,
+          };
+          projectiles.push(projectile);
+          enemy.lastShootTime = currentTime;
         }
       }
 
       // Remove enemies that are too far away
       if (Math.abs(enemy.y - player.y) > canvas.height * 2) {
         enemies.splice(i, 1);
+      }
+    }
+
+    // Update projectiles
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const projectile = projectiles[i];
+      
+      projectile.x += projectile.vx;
+      projectile.y += projectile.vy;
+      
+      // Check collision with player
+      const dx = player.x - projectile.x;
+      const dy = player.y - projectile.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      if (distance < player.radius + projectile.radius) {
+        player.bloodGauge -= projectile.damage;
+        if (player.bloodGauge <= 0) {
+          setGameState('gameover');
+        }
+        projectiles.splice(i, 1);
+        continue;
+      }
+      
+      // Remove projectiles that are too far away
+      if (Math.abs(projectile.y - player.y) > canvas.height * 2) {
+        projectiles.splice(i, 1);
       }
     }
 
@@ -351,8 +447,11 @@ export default function Game() {
       const spawnX = Math.random() * canvas.width;
       
       // Calculate enemy level based on altitude (higher = stronger)
-      // Level increases every 500 units of altitude
-      const enemyLevel = Math.max(1, Math.floor(-spawnY / 500) + 1);
+      // Level increases every ENEMY_LEVEL_ALTITUDE_INTERVAL units of altitude
+      const enemyLevel = Math.max(1, Math.floor(-spawnY / ENEMY_LEVEL_ALTITUDE_INTERVAL) + 1);
+      
+      // Randomly choose enemy type (50% melee, 50% ranged)
+      const enemyType = Math.random() < 0.5 ? 'melee' : 'ranged';
 
       const enemy: Enemy = {
         x: spawnX,
@@ -363,9 +462,15 @@ export default function Game() {
         health: 30 * difficulty * enemyLevel,
         maxHealth: 30 * difficulty * enemyLevel,
         damage: 5 * difficulty * enemyLevel,
-        speed: 1 + Math.random() * 2 * difficulty,
-        color: `hsl(${Math.random() * HUE_RANGE}, ${SATURATION}%, ${BASE_LIGHTNESS - difficulty * DIFFICULTY_LIGHTNESS_REDUCTION}%)`,
+        speed: enemyType === 'melee' ? 1 + Math.random() * 2 * difficulty : 0.8 + Math.random() * 1.2 * difficulty,
+        color: enemyType === 'melee' 
+          ? `hsl(0, ${SATURATION}%, ${BASE_LIGHTNESS - difficulty * DIFFICULTY_LIGHTNESS_REDUCTION}%)` // Red for melee
+          : `hsl(240, ${SATURATION}%, ${BASE_LIGHTNESS - difficulty * DIFFICULTY_LIGHTNESS_REDUCTION}%)`, // Blue for ranged
         level: enemyLevel,
+        type: enemyType,
+        lastShootTime: enemyType === 'ranged' ? Date.now() : undefined,
+        shootCooldown: enemyType === 'ranged' ? RANGED_ENEMY_SHOOT_COOLDOWN : undefined,
+        preferredDistance: enemyType === 'ranged' ? RANGED_ENEMY_PREFERRED_DISTANCE : undefined,
       };
 
       enemiesRef.current.push(enemy);
@@ -536,6 +641,26 @@ export default function Game() {
       ctx.textAlign = 'center';
       ctx.strokeText(`Lv.${enemy.level}`, enemy.x, enemy.y - cameraY - enemy.radius - 18);
       ctx.fillText(`Lv.${enemy.level}`, enemy.x, enemy.y - cameraY - enemy.radius - 18);
+      
+      // Draw enemy type indicator
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillStyle = enemy.type === 'melee' ? '#ff6b6b' : '#4dabf7';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      const typeLabel = enemy.type === 'melee' ? '近' : '遠';
+      ctx.strokeText(typeLabel, enemy.x, enemy.y - cameraY + enemy.radius + 15);
+      ctx.fillText(typeLabel, enemy.x, enemy.y - cameraY + enemy.radius + 15);
+    }
+
+    // Draw projectiles
+    for (const projectile of projectilesRef.current) {
+      ctx.beginPath();
+      ctx.arc(projectile.x, projectile.y - cameraY, projectile.radius, 0, Math.PI * 2);
+      ctx.fillStyle = projectile.color;
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.stroke();
     }
 
     // Draw UI
